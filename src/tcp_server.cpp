@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -17,7 +18,7 @@ int TcpServer::create_nonblocking_listen(uint16_t port) {
 
     int yes = 1;
     ::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    // TODO(学生): 按需打开 SO_REUSEPORT
+    // SO_REUSEPORT 留给尚未实现的 Multi-Reactor。单 Reactor 不打开它。
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -48,12 +49,21 @@ TcpServer::~TcpServer() {
     ::close(listen_fd_);
 }
 
+uint16_t TcpServer::listen_port() const {
+    sockaddr_in addr{};
+    socklen_t len = sizeof(addr);
+    if (::getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len) < 0) {
+        throw_sys_error("getsockname");
+    }
+    return ntohs(addr.sin_port);
+}
+
 void TcpServer::start() {
     if (started_) return;
     started_ = true;
     accept_channel_->set_read_callback([this] { handle_accept(); });
     accept_channel_->enable_reading();
-    LOG_INFO("TcpServer listening on port ", port_);
+    LOG_INFO("监听端口 ", listen_port());
 }
 
 void TcpServer::handle_accept() {
@@ -68,10 +78,16 @@ void TcpServer::handle_accept() {
             break;
         }
 
+        int one = 1;
+        if (::setsockopt(connfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0) {
+            LOG_WARN("TCP_NODELAY 设置失败 fd=", connfd);
+        }
+
         char ip[INET_ADDRSTRLEN];
         ::inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
         std::string name = std::string(ip) + ":" + std::to_string(ntohs(peer.sin_port)) +
                            "#" + std::to_string(next_conn_id_++);
+        LOG_INFO("接受连接 ", name, " fd=", connfd);
 
         auto conn = std::make_shared<TcpConnection>(loop_, connfd, name, store_);
         connections_[name] = conn;

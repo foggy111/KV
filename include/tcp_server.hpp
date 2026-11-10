@@ -21,6 +21,9 @@ public:
 
     void start();
 
+    // bind 之后的实际端口。传入 0 时由操作系统分配。
+    uint16_t listen_port() const;
+
 private:
     void handle_accept();
     void remove_connection(const TcpConnection::Ptr& conn);

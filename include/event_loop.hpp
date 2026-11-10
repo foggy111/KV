@@ -4,6 +4,7 @@
 #include "epoller.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -32,14 +33,28 @@ public:
     void run_in_loop(Functor cb);
     void queue_in_loop(Functor cb);
 
+    // 在本 loop 线程周期执行。用于 TTL 主动扫描，不是 Multi-Reactor。
+    // interval <= 0 会按 1ms 处理，避免忙等。
+    void run_every(std::chrono::milliseconds interval, Functor cb);
+
     bool is_in_loop_thread() const {
         return thread_id_ == std::this_thread::get_id();
     }
 
 private:
+    struct Timer {
+        std::chrono::steady_clock::time_point when;
+        std::chrono::milliseconds interval{0};
+        bool repeat{false};
+        bool alive{true};
+        Functor cb;
+    };
+
     void do_pending_functors();
     void wakeup();
     void handle_wakeup();
+    int next_timeout_ms() const;
+    void run_due_timers();
 
     std::atomic<bool> looping_{false};
     std::atomic<bool> quit_{false};
@@ -55,6 +70,9 @@ private:
     std::mutex pending_mu_;
     std::vector<Functor> pending_functors_;
     std::atomic<bool> calling_pending_{false};
+
+    // 定时器只在 loop 线程访问。数量预期很小（主动过期扫描）。
+    std::vector<Timer> timers_;
 };
 
 }  // namespace kv

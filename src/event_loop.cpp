@@ -2,6 +2,7 @@
 #include "channel.hpp"
 #include "async_logger.hpp"
 
+#include <algorithm>
 #include <sys/eventfd.h>
 #include <unistd.h>
 
@@ -33,19 +34,75 @@ EventLoop::~EventLoop() {
 void EventLoop::loop() {
     looping_ = true;
     quit_ = false;
-    LOG_INFO("EventLoop ", this, " start looping");
+    LOG_INFO("事件循环开始");
 
     while (!quit_) {
         active_channels_.clear();
-        epoller_->poll(/*timeout_ms=*/1000, &active_channels_);
+        // 顺序：就绪 IO → 到期定时器（TTL 主动扫描）→ 跨线程任务
+        epoller_->poll(next_timeout_ms(), &active_channels_);
         for (Channel* ch : active_channels_) {
             ch->handle_event();
         }
+        run_due_timers();
         do_pending_functors();
     }
 
     looping_ = false;
-    LOG_INFO("EventLoop ", this, " stop looping");
+    LOG_INFO("事件循环已停止");
+}
+
+void EventLoop::run_every(std::chrono::milliseconds interval, Functor cb) {
+    if (interval.count() <= 0) interval = std::chrono::milliseconds(1);
+    run_in_loop([this, interval, cb = std::move(cb)]() mutable {
+        Timer t;
+        t.when = std::chrono::steady_clock::now() + interval;
+        t.interval = interval;
+        t.repeat = true;
+        t.alive = true;
+        t.cb = std::move(cb);
+        timers_.push_back(std::move(t));
+    });
+}
+
+int EventLoop::next_timeout_ms() const {
+    constexpr int kMaxWaitMs = 1000;
+    auto now = std::chrono::steady_clock::now();
+    bool any = false;
+    auto next = now;
+    for (const Timer& t : timers_) {
+        if (!t.alive) continue;
+        if (!any || t.when < next) {
+            next = t.when;
+            any = true;
+        }
+    }
+    if (!any) return kMaxWaitMs;
+    if (next <= now) return 0;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(next - now).count();
+    if (ms > kMaxWaitMs) ms = kMaxWaitMs;
+    if (ms < 0) ms = 0;
+    return static_cast<int>(ms);
+}
+
+void EventLoop::run_due_timers() {
+    auto now = std::chrono::steady_clock::now();
+    std::vector<Functor> due;
+    due.reserve(timers_.size());
+    for (Timer& t : timers_) {
+        if (!t.alive || t.when > now) continue;
+        due.push_back(t.cb);
+        if (t.repeat) {
+            t.when = now + t.interval;
+        } else {
+            t.alive = false;
+        }
+    }
+    timers_.erase(std::remove_if(timers_.begin(), timers_.end(),
+                                 [](const Timer& t) { return !t.alive; }),
+                  timers_.end());
+    for (auto& cb : due) {
+        cb();
+    }
 }
 
 void EventLoop::quit() {

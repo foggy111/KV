@@ -55,6 +55,7 @@ private:
     ProtocolParser parser_;
     CloseCallback close_cb_;
     bool writing_{false};
+    bool closed_{false};
 };
 
 }  // namespace kv

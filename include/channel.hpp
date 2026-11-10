@@ -3,6 +3,7 @@
 #include "common.hpp"
 
 #include <functional>
+#include <memory>
 #include <sys/epoll.h>
 
 namespace kv {
@@ -37,6 +38,10 @@ public:
     void disable_all();
     void remove();
 
+    // 在 handle_event 期间保住 obj（通常是 TcpConnection）。
+    // 否则读回调里关闭连接会先析构 Channel，随后本函数继续访问成员。
+    void tie(const std::shared_ptr<void>& obj);
+
     EventLoop* owner_loop() const { return loop_; }
 
 private:
@@ -52,6 +57,9 @@ private:
     EventCallback write_cb_;
     EventCallback error_cb_;
     EventCallback close_cb_;
+
+    bool tied_{false};
+    std::weak_ptr<void> tie_;
 };
 
 }  // namespace kv

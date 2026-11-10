@@ -31,30 +31,37 @@ ParseResult ProtocolParser::try_parse(Buffer& buf, Command* out, std::string* er
 }
 
 ParseResult ProtocolParser::parse_inline(Buffer& buf, Command* out, std::string* err) {
-    const char* eol = buf.find_eol();
-    if (!eol) return ParseResult::NeedMore;
+    constexpr size_t kMaxInline = 1024 * 1024;
+    for (;;) {
+        const char* eol = buf.find_eol();
+        if (!eol) {
+            if (buf.readable_bytes() > kMaxInline) {
+                *err = "inline command too long";
+                return ParseResult::Error;
+            }
+            return ParseResult::NeedMore;
+        }
 
-    size_t line_len = static_cast<size_t>(eol - buf.peek());
-    // 去掉可选的 \r
-    size_t content_len = line_len;
-    if (content_len > 0 && buf.peek()[content_len - 1] == '\r') {
-        --content_len;
+        size_t line_len = static_cast<size_t>(eol - buf.peek());
+        // 去掉可选的 \r
+        size_t content_len = line_len;
+        if (content_len > 0 && buf.peek()[content_len - 1] == '\r') {
+            --content_len;
+        }
+
+        std::string line(buf.peek(), content_len);
+        buf.retrieve(line_len + 1);  // 含 '\n'
+
+        // 空行直接跳过，继续看缓冲里的下一条，避免把后续命令卡住。
+        if (line.empty()) continue;
+
+        auto parts = split_ws(line);
+        if (parts.empty()) continue;
+
+        out->name = to_upper(parts[0]);
+        out->args.assign(parts.begin() + 1, parts.end());
+        return ParseResult::Ok;
     }
-
-    std::string line(buf.peek(), content_len);
-    buf.retrieve(line_len + 1);  // 含 '\n'
-
-    if (line.empty()) return ParseResult::NeedMore;
-
-    auto parts = split_ws(line);
-    if (parts.empty()) {
-        *err = "empty command";
-        return ParseResult::Error;
-    }
-
-    out->name = to_upper(parts[0]);
-    out->args.assign(parts.begin() + 1, parts.end());
-    return ParseResult::Ok;
 }
 
 ParseResult ProtocolParser::parse_resp(Buffer& buf, Command* out, std::string* err) {
@@ -108,12 +115,22 @@ ParseResult ProtocolParser::parse_resp(Buffer& buf, Command* out, std::string* e
             *err = "negative bulk len";
             return ParseResult::Error;
         }
+        constexpr int kMaxBulk = 16 * 1024 * 1024;
+        if (bulk_len > kMaxBulk) {
+            *err = "bulk too large";
+            return ParseResult::Error;
+        }
 
         size_t data_start = static_cast<size_t>(len_crlf - buf.peek()) + 2;
         size_t need = data_start + static_cast<size_t>(bulk_len) + 2;
         if (buf.readable_bytes() < need) return ParseResult::NeedMore;
+        if (buf.peek()[data_start + static_cast<size_t>(bulk_len)] != '\r' ||
+            buf.peek()[data_start + static_cast<size_t>(bulk_len) + 1] != '\n') {
+            *err = "bulk missing CRLF";
+            return ParseResult::Error;
+        }
 
-        parts.emplace_back(buf.peek() + data_start, bulk_len);
+        parts.emplace_back(buf.peek() + data_start, static_cast<size_t>(bulk_len));
         offset = need;
     }
 
