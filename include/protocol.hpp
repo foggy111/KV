@@ -20,14 +20,18 @@ enum class ParseResult {
     Error,       // 协议错误
 };
 
-// Redis-like 简易协议：
-//   1) 行协议:  SET key value\r\n  /  GET key\r\n
-//   2) RESP-lite 数组（可选扩展，见 TODO）
+// Redis-like 简易协议（子集，不是完整 RESP）：
+//   1) 行协议:  SET key value\r\n  /  SET key value EX 2\r\n
+//   2) RESP 数组：仅支持顶层 *N + bulk string（$len）。不支持嵌套数组、
+//      简单字符串请求、整块协议错误后的自动重同步。
 //
-// 粘包/半包由 Buffer + 状态机处理：一次可能解析 0..N 条命令。
+// 粘包/半包：数据不够时返回 NeedMore，且不消费已读字节。
+// Error：不消费字节。调用方必须停下来（本项目选择关闭连接），
+// 不能原样再调一次，否则会在同一段坏数据上忙循环。
 class ProtocolParser {
 public:
-    // 尝试从 buf 解析一条命令；成功时会 retrieve 已消费字节
+    // 尝试从 buf 解析一条命令；成功时会 retrieve 已消费字节。
+    // 空行会被跳过并继续看下一条。
     ParseResult try_parse(Buffer& buf, Command* out, std::string* err);
 
     // 编码响应（简易行协议 / RESP 简单字符串）

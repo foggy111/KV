@@ -1,18 +1,24 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <sstream>
 #include <string>
 
 namespace kv {
 
-// 简易 stdout 日志：带互斥锁，足够学习用。
-// TODO(学生): 改成异步队列 + 后台线程写文件，避免阻塞 Reactor 线程。
+// 名字沿用 AsyncLogger，当前实现是互斥锁保护的同步 stdout，不是异步落盘。
+// 请求路径日志会打在事件循环线程上，演示时有用，压测时应关掉。
+// 异步队列 + 文件滚动仍未做。
 class AsyncLogger {
 public:
     enum class Level { DEBUG, INFO, WARN, ERROR };
 
     static AsyncLogger& instance();
+
+    void set_min_level(Level level);
+    void set_request_log(bool on);
+    bool request_log() const;
 
     void log(Level level, const std::string& msg);
 
@@ -33,6 +39,9 @@ public:
 
 private:
     AsyncLogger() = default;
+
+    std::atomic<int> min_level_{static_cast<int>(Level::INFO)};
+    std::atomic<bool> request_log_{true};
 
     template <typename T>
     static void append(std::ostringstream& oss, T&& v) {
@@ -58,5 +67,12 @@ private:
 #define LOG_INFO(...) ::kv::AsyncLogger::instance().info(__VA_ARGS__)
 #define LOG_WARN(...) ::kv::AsyncLogger::instance().warn(__VA_ARGS__)
 #define LOG_ERROR(...) ::kv::AsyncLogger::instance().error(__VA_ARGS__)
+// 每条请求的路径日志。--quiet 或 set_request_log(false) 时不输出。
+#define LOG_REQ(...)                                                       \
+    do {                                                                   \
+        if (::kv::AsyncLogger::instance().request_log()) {                 \
+            ::kv::AsyncLogger::instance().info(__VA_ARGS__);               \
+        }                                                                  \
+    } while (0)
 
 }  // namespace kv

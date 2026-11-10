@@ -1,9 +1,8 @@
-// 独立 assert 测试（无需 GoogleTest）
 #include "buffer.hpp"
 #include "protocol.hpp"
 
-#include <cassert>
-#include <iostream>
+#include <gtest/gtest.h>
+
 #include <string>
 
 using kv::Buffer;
@@ -11,81 +10,173 @@ using kv::Command;
 using kv::ParseResult;
 using kv::ProtocolParser;
 
-static void expect_ok(ProtocolParser& p, Buffer& buf, const std::string& name, size_t argc) {
-    Command cmd;
-    std::string err;
-    auto r = p.try_parse(buf, &cmd, &err);
-    assert(r == ParseResult::Ok);
-    assert(cmd.name == name);
-    assert(cmd.args.size() == argc);
-    (void)cmd;
+namespace {
+
+ParseResult parse_one(ProtocolParser& parser, Buffer& buf, Command* cmd, std::string* err) {
+    return parser.try_parse(buf, cmd, err);
 }
 
-int main() {
+}  // namespace
+
+TEST(Protocol, InlineSet) {
     ProtocolParser parser;
+    Buffer buf;
+    buf.append("SET foo bar\r\n");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "SET");
+    ASSERT_EQ(cmd.args.size(), 2u);
+    EXPECT_EQ(cmd.args[0], "foo");
+    EXPECT_EQ(cmd.args[1], "bar");
+    EXPECT_EQ(buf.readable_bytes(), 0u);
+}
 
-    // 1) 完整行协议
-    {
-        Buffer buf;
-        buf.append("SET foo bar\r\n");
-        expect_ok(parser, buf, "SET", 2);
-        assert(buf.readable_bytes() == 0);
-    }
+TEST(Protocol, InlineSetEx) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("set k v EX 2\n");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "SET");
+    ASSERT_EQ(cmd.args.size(), 4u);
+    EXPECT_EQ(cmd.args[2], "EX");
+    EXPECT_EQ(cmd.args[3], "2");
+}
 
-    // 2) 半包：先半行，再补齐
-    {
-        Buffer buf;
-        buf.append("GET he");
-        Command cmd;
-        std::string err;
-        assert(parser.try_parse(buf, &cmd, &err) == ParseResult::NeedMore);
-        buf.append("llo\n");
-        assert(parser.try_parse(buf, &cmd, &err) == ParseResult::Ok);
-        assert(cmd.name == "GET");
-        assert(cmd.args.size() == 1);
-        assert(cmd.args[0] == "hello");
-    }
+TEST(Protocol, HalfPacket) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("GET he");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::NeedMore);
+    EXPECT_EQ(buf.readable_bytes(), 6u);
 
-    // 3) 粘包：一次两条
-    {
-        Buffer buf;
-        buf.append("PING\r\nSET a b\r\n");
-        expect_ok(parser, buf, "PING", 0);
-        expect_ok(parser, buf, "SET", 2);
-        assert(buf.readable_bytes() == 0);
-    }
+    buf.append("llo\r");
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::NeedMore);
 
-    // 4) RESP-lite
-    {
-        Buffer buf;
-        buf.append("*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n");
-        Command cmd;
-        std::string err;
-        assert(parser.try_parse(buf, &cmd, &err) == ParseResult::Ok);
-        assert(cmd.name == "SET");
-        assert(cmd.args.size() == 2);
-        assert(cmd.args[0] == "k");
-        assert(cmd.args[1] == "v");
-    }
+    buf.append("\n");
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "GET");
+    ASSERT_EQ(cmd.args.size(), 1u);
+    EXPECT_EQ(cmd.args[0], "hello");
+    EXPECT_EQ(buf.readable_bytes(), 0u);
+}
 
-    // 5) RESP 半包
-    {
-        Buffer buf;
-        buf.append("*2\r\n$3\r\nGET\r\n$3\r\nke");
-        Command cmd;
-        std::string err;
-        assert(parser.try_parse(buf, &cmd, &err) == ParseResult::NeedMore);
-        buf.append("y\r\n");
-        assert(parser.try_parse(buf, &cmd, &err) == ParseResult::Ok);
-        assert(cmd.name == "GET");
-        assert(cmd.args[0] == "key");
-    }
+TEST(Protocol, StickyTwoCommands) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("PING\r\nSET a b\r\n");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "PING");
+    EXPECT_TRUE(cmd.args.empty());
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "SET");
+    ASSERT_EQ(cmd.args.size(), 2u);
+    EXPECT_EQ(cmd.args[0], "a");
+    EXPECT_EQ(cmd.args[1], "b");
+    EXPECT_EQ(buf.readable_bytes(), 0u);
+}
 
-    // 6) 编码
-    assert(ProtocolParser::encode_simple("OK") == "+OK\r\n");
-    assert(ProtocolParser::encode_null_bulk() == "$-1\r\n");
-    assert(ProtocolParser::encode_bulk("hi") == "$2\r\nhi\r\n");
+TEST(Protocol, EmptyLineDoesNotStallFollowingCommand) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("\r\nPING\r\n");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "PING");
+    EXPECT_EQ(buf.readable_bytes(), 0u);
+}
 
-    std::cout << "All protocol tests passed.\n";
-    return 0;
+TEST(Protocol, RespSet) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "SET");
+    ASSERT_EQ(cmd.args.size(), 2u);
+    EXPECT_EQ(cmd.args[0], "k");
+    EXPECT_EQ(cmd.args[1], "v");
+}
+
+TEST(Protocol, RespHalfPacket) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("*2\r\n$3\r\nGET\r\n$3\r\nke");
+    Command cmd;
+    std::string err;
+    size_t before = buf.readable_bytes();
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::NeedMore);
+    EXPECT_EQ(buf.readable_bytes(), before);
+    buf.append("y\r\n");
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "GET");
+    ASSERT_EQ(cmd.args.size(), 1u);
+    EXPECT_EQ(cmd.args[0], "key");
+}
+
+TEST(Protocol, RespStickyTwoCommands) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("*1\r\n$4\r\nPING\r\n*3\r\n$3\r\nSET\r\n$1\r\na\r\n$1\r\nb\r\n");
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "PING");
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Ok);
+    EXPECT_EQ(cmd.name, "SET");
+    EXPECT_EQ(cmd.args[1], "b");
+    EXPECT_EQ(buf.readable_bytes(), 0u);
+}
+
+TEST(Protocol, RespBadArgcDoesNotConsume) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append("*x\r\n");
+    Command cmd;
+    std::string err;
+    size_t before = buf.readable_bytes();
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Error);
+    EXPECT_EQ(buf.readable_bytes(), before);
+    EXPECT_FALSE(err.empty());
+}
+
+TEST(Protocol, RespBulkMissingCrlf) {
+    ProtocolParser parser;
+    Buffer buf;
+    // 长度声称 2，但数据后面不是 CRLF。
+    buf.append("*1\r\n$2\r\nABXX");
+    Command cmd;
+    std::string err;
+    size_t before = buf.readable_bytes();
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Error);
+    EXPECT_EQ(err, "bulk missing CRLF");
+    EXPECT_EQ(buf.readable_bytes(), before);
+}
+
+TEST(Protocol, InlineTooLong) {
+    ProtocolParser parser;
+    Buffer buf;
+    buf.append(std::string(1024 * 1024 + 1, 'A'));
+    Command cmd;
+    std::string err;
+    EXPECT_EQ(parse_one(parser, buf, &cmd, &err), ParseResult::Error);
+    EXPECT_EQ(err, "inline command too long");
+}
+
+TEST(Protocol, Encode) {
+    EXPECT_EQ(ProtocolParser::encode_simple("OK"), "+OK\r\n");
+    EXPECT_EQ(ProtocolParser::encode_simple("PONG"), "+PONG\r\n");
+    EXPECT_EQ(ProtocolParser::encode_error("nope"), "-ERR nope\r\n");
+    EXPECT_EQ(ProtocolParser::encode_null_bulk(), "$-1\r\n");
+    EXPECT_EQ(ProtocolParser::encode_bulk("hi"), "$2\r\nhi\r\n");
+    EXPECT_EQ(ProtocolParser::encode_integer(-2), ":-2\r\n");
+    EXPECT_EQ(ProtocolParser::encode_integer(1), ":1\r\n");
 }

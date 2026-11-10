@@ -9,7 +9,18 @@ Channel::~Channel() {
     // fd 的关闭由持有者（TcpConnection / TcpServer）负责
 }
 
+void Channel::tie(const std::shared_ptr<void>& obj) {
+    tie_ = obj;
+    tied_ = true;
+}
+
 void Channel::handle_event() {
+    std::shared_ptr<void> guard;
+    if (tied_) {
+        guard = tie_.lock();
+        if (!guard) return;
+    }
+
     // EPOLLHUP 且没有可读：对端关闭
     if ((revents_ & EPOLLHUP) && !(revents_ & EPOLLIN)) {
         if (close_cb_) close_cb_();
