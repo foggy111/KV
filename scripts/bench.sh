@@ -65,12 +65,15 @@ grep -q "监听端口 ${PORT}" "$LOG"
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 OUT="$RESULT_DIR/bench-${STAMP}.txt"
+# 先数工作区，再创建结果文件。否则 git status 会把正在写的 txt 自己算成 1 行改动。
+dirty_lines=$(git status --porcelain | wc -l | tr -d ' ')
+git_rev=$(git rev-parse HEAD)
 {
     echo "# reactor-kv raw benchmark"
     echo "# This file is produced by scripts/bench.sh. Do not edit the numbers by hand."
     echo "collected_at=$(date -Is)"
-    echo "git_rev=$(git rev-parse HEAD)"
-    echo "git_status=$(git status --porcelain | wc -l) dirty_lines"
+    echo "git_rev=${git_rev}"
+    echo "git_status=${dirty_lines} dirty_lines"
     echo "hostname=$(hostname)"
     echo "uname=$(uname -a)"
     os_pretty=$(. /etc/os-release && printf '%s' "$PRETTY_NAME")

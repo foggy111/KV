@@ -182,6 +182,24 @@ bash scripts/bench.sh
 
 结果目录的说明在 [benchmarks/results/README.md](benchmarks/results/README.md)。若下面出现「构建机摘录」，它必须和对应的 `bench-*.txt` 一致；不一致时以 txt 为准。
 
+### 构建机摘录
+
+文件：`benchmarks/results/bench-20261110T063712Z.txt`。
+
+这是一次 Ubuntu 24.04.5 的 KVM 虚拟机测量，`wsl=no`，主机名 `cursor`，`cpu_model=Intel(R) Xeon(R) Processor`，在线 4 核，g++ 13.3.0，编译命令含 `-O3 -DNDEBUG`。它不是 WSL2 Ubuntu 22.04。答辩环境的四项仍然是待测。
+
+`git_rev=681668c90993a6df568621433b71c01250c2b6d7`。文件头 `git_status=1 dirty_lines` 是因为当时脚本先创建了这个 txt，`git status` 把该未跟踪文件自己数了进去。开跑前源码工作区是干净的。采集脚本后来把 `git status` 挪到创建文件之前，以免下次再把结果文件算进去；下面的数字来自挪动之前的那次运行。
+
+同一次 `kv_server --quiet --port 16379`，4 条连接，闭环且每条连接窗口为 1，`SET`/`GET` 交替，128 个键，值 16 字节，预热 1 秒，测量 5 秒，连续 3 次：
+
+| 次序 | QPS | P99（微秒） | 服务器 CPU | 客户端 CPU | 错误率 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 205096.4721 | 35 | 98.60 | 99.40 | 0.000000 |
+| 2 | 219118.3928 | 24 | 99.60 | 99.80 | 0.000000 |
+| 3 | 216474.5675 | 30 | 99.80 | 99.60 | 0.000000 |
+
+CPU 列是「一个逻辑 CPU 为 100」。服务器和 `kv_bench` 都接近打满一个核。这是上述负载下的测量，不是多核扩展成绩，也不是打开请求路径日志时的成绩。日志全开时的 QPS / P99 / CPU / 错误率仍是待测。min、p50、max 和样本数只写在 txt 里。
+
 ## AI 辅助开发
 
 人先定的是教学骨架里的模块边界，以及 [docs/design.md](docs/design.md) 里的取舍：单 Reactor、水平触发、命令留在事件循环线程、TTL 的两种删除、哪些失败要关连接。

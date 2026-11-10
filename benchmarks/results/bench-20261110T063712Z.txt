@@ -1,0 +1,123 @@
+# reactor-kv raw benchmark
+# This file is produced by scripts/bench.sh. Do not edit the numbers by hand.
+collected_at=2026-11-10T06:37:12+00:00
+git_rev=681668c90993a6df568621433b71c01250c2b6d7
+git_status=1 dirty_lines
+hostname=cursor
+uname=Linux cursor 6.12.113+ #1 SMP PREEMPT_DYNAMIC Mon Nov  9 16:04:37 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+os_pretty=Ubuntu 24.04.5 LTS
+virt=kvm
+wsl=no
+proc_version=Linux version 6.12.113+ (root@ed730443c194) (gcc (Debian 12.2.0-14+deb12u1) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) #1 SMP PREEMPT_DYNAMIC Mon Nov  9 16:04:37 UTC 2026
+cpu_model=Intel(R) Xeon(R) Processor
+cpu_cores_online=4
+compiler=g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+cmake_build_type=Release
+compile_command=/usr/bin/g++  -I/agent/repos/KV/include -O3 -DNDEBUG -std=c++17 -Wall -Wextra -Wpedantic -o CMakeFiles/kv_server.dir/src/main.cpp.o -c /agent/repos/KV/src/main.cpp
+server_bin=/agent/repos/KV/build-bench/kv_server
+bench_bin=/agent/repos/KV/build-bench/kv_bench
+server_flags=--quiet --port 16379
+request_log=off
+load=localhost closed-loop; connections=4; pipeline_depth=1; keys=128; value_bytes=16; mix=alternating SET/GET; warmup_s=1; duration_s=5; runs=3 on one server process
+sampling=kv_bench prints nearest-rank P99 of per-request RTT and /proc stat CPU of the server pid; see each run block
+not_a_claim=WSL2 Ubuntu 22.04 presentation machine is 待测 unless this file's uname/os/wsl lines say that is where it ran
+
+----- run 1 -----
+tool=kv_bench
+connections=4
+pipeline_depth=1
+command_mix=alternating SET and GET
+value_bytes=16
+keys=128
+warmup_s=1.0000
+requested_duration_s=5.0000
+elapsed_s=5.0000
+ok=1025483
+errors=0
+samples=1025483
+qps=205096.4721
+error_rate=0.000000
+rtt_us_min=7
+rtt_us_p50=18
+rtt_us_p99=35
+rtt_us_max=4876
+cpu_window_s=4.9998
+server_cpu_percent_one_core=98.60
+server_cpu_seconds=4.9300
+client_cpu_percent_one_core=99.40
+client_cpu_seconds=4.9700
+rtt_definition=steady_clock from request issue (first send attempt) until one full response is parsed
+p99_method=nearest_rank ceil(p*n)-1 ; not interpolated
+qps_method=ok / elapsed_s ; elapsed is measured window, warmup excluded
+excluded=warmup responses and requests still in flight at window end
+error_rate_method=errors/(ok+errors); GET miss ($-1) is success; -ERR and transport failure are errors
+cpu_method=delta(/proc/<pid>/stat utime+stime)/CLK_TCK/cpu_window_s*100 ; 100 means one logical CPU saturated ; window is the sample interval inside the measure window, not an external profiler
+server_pid=4195
+clk_tck=100
+
+----- run 2 -----
+tool=kv_bench
+connections=4
+pipeline_depth=1
+command_mix=alternating SET and GET
+value_bytes=16
+keys=128
+warmup_s=1.0000
+requested_duration_s=5.0000
+elapsed_s=5.0000
+ok=1095592
+errors=0
+samples=1095592
+qps=219118.3928
+error_rate=0.000000
+rtt_us_min=7
+rtt_us_p50=17
+rtt_us_p99=24
+rtt_us_max=3481
+cpu_window_s=4.9999
+server_cpu_percent_one_core=99.60
+server_cpu_seconds=4.9800
+client_cpu_percent_one_core=99.80
+client_cpu_seconds=4.9900
+rtt_definition=steady_clock from request issue (first send attempt) until one full response is parsed
+p99_method=nearest_rank ceil(p*n)-1 ; not interpolated
+qps_method=ok / elapsed_s ; elapsed is measured window, warmup excluded
+excluded=warmup responses and requests still in flight at window end
+error_rate_method=errors/(ok+errors); GET miss ($-1) is success; -ERR and transport failure are errors
+cpu_method=delta(/proc/<pid>/stat utime+stime)/CLK_TCK/cpu_window_s*100 ; 100 means one logical CPU saturated ; window is the sample interval inside the measure window, not an external profiler
+server_pid=4195
+clk_tck=100
+
+----- run 3 -----
+tool=kv_bench
+connections=4
+pipeline_depth=1
+command_mix=alternating SET and GET
+value_bytes=16
+keys=128
+warmup_s=1.0000
+requested_duration_s=5.0000
+elapsed_s=5.0000
+ok=1082374
+errors=0
+samples=1082374
+qps=216474.5675
+error_rate=0.000000
+rtt_us_min=7
+rtt_us_p50=17
+rtt_us_p99=30
+rtt_us_max=3529
+cpu_window_s=5.0000
+server_cpu_percent_one_core=99.80
+server_cpu_seconds=4.9900
+client_cpu_percent_one_core=99.60
+client_cpu_seconds=4.9800
+rtt_definition=steady_clock from request issue (first send attempt) until one full response is parsed
+p99_method=nearest_rank ceil(p*n)-1 ; not interpolated
+qps_method=ok / elapsed_s ; elapsed is measured window, warmup excluded
+excluded=warmup responses and requests still in flight at window end
+error_rate_method=errors/(ok+errors); GET miss ($-1) is success; -ERR and transport failure are errors
+cpu_method=delta(/proc/<pid>/stat utime+stime)/CLK_TCK/cpu_window_s*100 ; 100 means one logical CPU saturated ; window is the sample interval inside the measure window, not an external profiler
+server_pid=4195
+clk_tck=100
+
